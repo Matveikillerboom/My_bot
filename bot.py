@@ -4,6 +4,7 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import Message, FSInputFile
 from aiogram.enums import ParseMode
+from aiohttp import web  # ← НОВОЕ
 
 import config
 import database as db
@@ -40,7 +41,7 @@ async def cmd_hide_short(message: Message):
 async def cmd_off_short(message: Message):
     await cmd_off(message)
 
-# --- ОСНОВНЫЕ КОМАНДЫ ---
+# --- ВСЕ ТВОИ КОМАНДЫ (ОНИ ТУТ, КАК БЫЛИ) ---
 
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
@@ -156,24 +157,21 @@ async def cmd_bio(message: Message):
     
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        await message.answer("❌ Формат: `/bio <тег_или_имя> <биография>`", parse_mode=ParseMode.MARKDOWN)
+        await message.answer("❌ Формат: `/bio <имя> <биография>`", parse_mode=ParseMode.MARKDOWN)
         return
     
     parts = args[1].split(maxsplit=1)
     if len(parts) < 2:
-        await message.answer("❌ Укажите тег и биографию: `/bio GAY Туповатый, но весёлый`", parse_mode=ParseMode.MARKDOWN)
+        await message.answer("❌ Укажите имя и биографию: `/bio Джордж Дантон Тёмный маг`", parse_mode=ParseMode.MARKDOWN)
         return
     
-    query = parts[0].strip()
+    name = parts[0].strip()
     new_bio = parts[1].strip()
     
-    # Ищем по тегу ИЛИ имени
-    character = db.find_character(query)
-    if not character:
-        await message.answer(f"❌ Персонаж по запросу *{query}* не найден!", parse_mode=ParseMode.MARKDOWN)
+    if not db.get_character(name):
+        await message.answer(f"❌ Персонаж *{name}* не найден!", parse_mode=ParseMode.MARKDOWN)
         return
     
-    name = character["name"]
     if db.edit_character(name, bio=new_bio):
         await message.answer(f"✅ Биография для *{name}* обновлена!", parse_mode=ParseMode.MARKDOWN)
     else:
@@ -390,7 +388,7 @@ async def handle_text(message: Message):
     
     active_name = db.get_active()
     if not active_name:
-        return  # ← ПРОСТО ИГНОРИРУЕМ, НИЧЕГО НЕ ПИШЕМ
+        return
     
     text = message.text.strip()
     if not text:
@@ -413,12 +411,26 @@ async def handle_text(message: Message):
     else:
         await message.answer(formatted_text, parse_mode=ParseMode.MARKDOWN)
 
-# --- ЗАПУСК ---
+# --- НОВЫЙ ЗАПУСК (С ВЕБ-СЕРВЕРОМ ДЛЯ RENDER) ---
+
+async def handle_web(request):
+    """Обработчик для проверки Render-ом"""
+    return web.Response(text="Бот запущен и работает!")
 
 async def main():
-    print("🤖 Бот запущен в режиме 'Абсолютная чистота'!")
-    print("✅ Если персонаж не активен — бот игнорирует сообщения (без подсказок)")
-    print("✅ Все сообщения удаляются и отправляются от лица персонажа")
+    # 1. Запускаем веб-сервер для Render
+    app = web.Application()
+    app.router.add_get('/', handle_web)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    print(f"🌐 Веб-сервер запущен на порту {port}")
+    
+    # 2. Запускаем бота
+    print("🤖 Бот запущен!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
